@@ -1,4 +1,5 @@
 from picamera2 import Picamera2, Preview
+from PIL import Image, ImageStat, ImageChops
 from adafruit_motorkit import MotorKit
 from adafruit_motor import stepper
 import numpy as np
@@ -13,17 +14,20 @@ import board
 import os
 
 # create a directory to put results in
-save_dir = "/home/roger/Pictures/cine_capture";
+save_dir = "/home/roger/Pictures/cine_capture/" + str(date.today())
 os.makedirs(save_dir, exist_ok=True)
 
 picam2 = Picamera2()
 preview_config = picam2.create_preview_configuration()
 capture_config = picam2.create_still_configuration()
+
 #print(camera_config)
 picam2.configure(preview_config)
 picam2.start_preview(Preview.QTGL)
 picam2.start()
 time.sleep(2)
+picam2.set_controls({"ExposureValue": 0})
+#print(picam2.camera_controls)
 #picam2.capture_file("test.jpg")
 
 # show where perf trigger will be
@@ -57,7 +61,7 @@ def get_file_path():
         if os.path.isfile(os.path.join(save_dir, path)):
             count += 1
             
-    return save_dir + "/" + str(date.today()) + '_' + str(count + 1).zfill(3) + ".jpg";
+    return save_dir + "/frame" +  '_' + str(count + 1).zfill(5) + ".jpg";
 
 def new_perf():
     prof = picam2.capture_array("main")
@@ -83,7 +87,42 @@ def new_perf():
         return True
     else:
         return False
+
+def tweak_image(img):
     
+    width_offset = 0.1  # percentage of the width of image
+    height_offset = 0.1
+    window_size = 200  # size of the sampling box (pixels each side)
+
+    width, height = img.size
+
+    # loop down the image
+    perf_start_y = 100
+    for y in range(height):
+
+        # window
+        top_left_x = width_offset * width
+        top_left_y = y
+        bottom_right_x = top_left_x + window_size
+        bottom_right_y = top_left_y + window_size
+        window = (top_left_x, top_left_y, bottom_right_x, bottom_right_y)
+
+        # get that window
+        cropped_img = img.crop(window).convert('L')
+        stat = ImageStat.Stat(cropped_img)
+        avg = stat.mean[0]
+
+        if avg > 252:
+            if y > perf_start_y:
+                shift_y = (y - perf_start_y)
+            else:
+                shift_y = perf_start_y - y
+            break
+
+    img = ImageChops.offset(img, 0, shift_y * -1)
+
+    return img
+
 def on_press(key):
     pass
 
@@ -141,19 +180,19 @@ while True:
         if new_perf():
             if not in_perf:
                 print("SNAP!")
-                picam2.switch_mode_and_capture_file(capture_config, get_file_path())
-                #record_on = False
+                img = picam2.switch_mode_and_capture_image(capture_config)
+                img = tweak_image(img)
+                img.save(get_file_path(), quality=95)
                 in_perf = True
-        else:
-            in_perf = False
-            
-        # keep tension in the takeup spool if
-        while True:
-            if GPIO.input(tension_switch) == GPIO.LOW and record_on:
-                takeup_kit.stepper1.onestep(direction=stepper.FORWARD)
-            else:
-                break
                 
+                # keep tension in the takeup spool if
+                while True:
+                    if GPIO.input(tension_switch) == GPIO.LOW and record_on:
+                        takeup_kit.stepper1.onestep(direction=stepper.FORWARD)
+                    else:
+                        break
+        else:
+            in_perf = False        
       
     if tighten:
         print("Tighten")
