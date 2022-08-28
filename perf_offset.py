@@ -21,9 +21,13 @@ bottom_right_x = top_left_x + window_size
 bottom_right_y = top_left_y + window_size
 
 window = (top_left_x, top_left_y, bottom_right_x, bottom_right_y)
-cropped_img = img.crop(window)
+cropped_img = img.crop(window).convert('L')
+stat = ImageStat.Stat(cropped_img)
 
-cropped_img.show()
+print('banana')
+print(stat.mean[0])
+
+# cropped_img.show()
 
 # loop down the image
 # for i in range(height):
